@@ -269,6 +269,12 @@ See more on [how Pyrefly does import resolution](import-resolution.mdx).
     to be reused between different systems and platforms.
   - If you're running into problems with editiable installations in your project,
     please read up on [editable installs with static analysis tools](import-resolution.mdx#editable-installs).
+  - **`.pth` file expansion**: Pyrefly automatically expands `.pth` files found in manually configured
+    `site-package-path` directories to align behavior with interpreter-queried site-packages. Only 
+    path-based `.pth` entries are supported; lines starting with `import` (import hooks) are ignored 
+    as they require runtime code execution. When using [Environment Autoconfiguration](#environment-autoconfiguration), 
+    Python has already expanded `.pth` files in its standard site-packages directories, so this expansion 
+    only applies to manually configured paths.
 
 ### `python-platform`
 

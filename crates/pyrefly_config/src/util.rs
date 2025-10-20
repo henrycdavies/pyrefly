@@ -6,8 +6,11 @@
  */
 
 use std::fmt::Display;
+use std::io::BufRead;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -175,7 +178,170 @@ impl<T, E> ConfigOrigin<Result<T, E>> {
             ConfigOrigin::ConfigFile(Err(err))
             | ConfigOrigin::CommandLine(Err(err))
             | ConfigOrigin::Auto(Err(err))
-            | ConfigOrigin::Lsp(Err(err)) => Err(err),
+            |             ConfigOrigin::Lsp(Err(err)) => Err(err),
         }
+    }
+}
+
+/// Expands .pth files found in the given directories, returning all paths
+/// referenced by those .pth files that exist and are valid.
+///
+/// .pth files contain one path per line. Lines starting with 'import' are
+/// ignored as they represent import hooks (which Pyrefly cannot execute).
+/// Empty lines, lines with only whitespace, and comment lines are also ignored.
+///
+/// This mimics Python's .pth file processing behavior for site-packages directories,
+/// allowing Pyrefly to handle custom site-package directories
+/// that contain .pth files but aren't in Python's standard site-packages locations.
+pub fn expand_pth_files(site_package_dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut expanded_paths = Vec::new();
+
+    for dir in site_package_dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            // Only process .pth files
+            if path.extension() != Some(std::ffi::OsStr::new("pth")) {
+                continue;
+            }
+
+            let Ok(file) = std::fs::File::open(&path) else {
+                continue;
+            };
+
+            let reader = std::io::BufReader::new(file);
+
+            for line in reader.lines().flatten() {
+                let trimmed = line.trim();
+
+                // Skip empty lines, comments, and import hooks
+                // Import hooks start with "import " or "import\t"
+                if trimmed.is_empty()
+                    || trimmed.starts_with('#')
+                    || trimmed.starts_with("import ")
+                    || trimmed.starts_with("import\t")
+                {
+                    continue;
+                }
+
+                // Path can be absolute or relative to the .pth file's directory
+                let pth_path = if Path::new(trimmed).is_absolute() {
+                    PathBuf::from(trimmed)
+                } else {
+                    dir.join(trimmed)
+                };
+
+                // Only add if the path exists
+                if pth_path.exists() {
+                    expanded_paths.push(pth_path);
+                }
+            }
+        }
+    }
+
+    expanded_paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_pth_files_empty_dir() {
+        let result = expand_pth_files(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_expand_pth_files_nonexistent_dir() {
+        let result = expand_pth_files(&[PathBuf::from("/nonexistent/path")]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_expand_pth_files_with_content() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let site_packages = temp.path().join("site-packages");
+        fs::create_dir(&site_packages).unwrap();
+
+        // Create a .pth file with various types of content
+        let pth_content = format!(
+            "# This is a comment\n\
+             relative/path\n\
+             /absolute/path\n\
+             import some_module\n\
+             \n\
+             \t\n\
+             another/relative/path\n"
+        );
+        fs::write(site_packages.join("test.pth"), pth_content).unwrap();
+
+        // Create the relative paths so they exist
+        let relative1 = site_packages.join("relative/path");
+        let relative2 = site_packages.join("another/relative/path");
+        fs::create_dir_all(&relative1).unwrap();
+        fs::create_dir_all(&relative2).unwrap();
+
+        let expanded = expand_pth_files(&[site_packages]);
+
+        // Should only include the existing relative paths
+        // (absolute doesn't exist, import line ignored, comments and empty lines ignored)
+        assert_eq!(expanded.len(), 2);
+        assert!(expanded.contains(&relative1));
+        assert!(expanded.contains(&relative2));
+    }
+
+    #[test]
+    fn test_expand_pth_files_multiple_pth_files() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let site_packages = temp.path().join("site-packages");
+        fs::create_dir(&site_packages).unwrap();
+
+        // Create multiple .pth files
+        let path1 = site_packages.join("path1");
+        let path2 = site_packages.join("path2");
+        fs::create_dir(&path1).unwrap();
+        fs::create_dir(&path2).unwrap();
+
+        fs::write(site_packages.join("first.pth"), "path1\n").unwrap();
+        fs::write(site_packages.join("second.pth"), "path2\n").unwrap();
+
+        let expanded = expand_pth_files(&[site_packages]);
+
+        assert_eq!(expanded.len(), 2);
+        assert!(expanded.contains(&path1));
+        assert!(expanded.contains(&path2));
+    }
+
+    #[test]
+    fn test_expand_pth_files_ignores_non_pth_files() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let site_packages = temp.path().join("site-packages");
+        fs::create_dir(&site_packages).unwrap();
+
+        // Create a non-.pth file
+        fs::write(site_packages.join("not_a_pth.txt"), "some/path\n").unwrap();
+
+        let expanded = expand_pth_files(&[site_packages]);
+
+        // Should be empty since we only process .pth files
+        assert!(expanded.is_empty());
     }
 }

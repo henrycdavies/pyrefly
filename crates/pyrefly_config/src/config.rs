@@ -707,6 +707,21 @@ impl ConfigFile {
             }
         }
 
+        // Expand .pth files in manually configured site-package-path directories.
+        // Python automatically expands .pth files in its standard site-packages directories,
+        // and those paths are already included in interpreter_site_package_path via sys.path.
+        // However, custom directories need manual expansion.
+        if let Some(site_paths) = &self.python_environment.site_package_path {
+            let expanded = crate::util::expand_pth_files(site_paths);
+            if !expanded.is_empty() {
+                self.python_environment
+                    .site_package_path
+                    .as_mut()
+                    .unwrap()
+                    .extend(expanded);
+            }
+        }
+
         if self.root.errors.is_none() {
             self.root.errors = Some(Default::default());
         }

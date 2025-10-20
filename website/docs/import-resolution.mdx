@@ -148,6 +148,14 @@ setuptools-based editable installs and Pyrefly, setuptools must be configured to
 This configuration should be performed through the build frontend (such as `pip`) by specifying the appropriate
 options during installation or in the project's configuration files.
 
+### Custom `.pth` File Directories
+
+Pyrefly automatically expands `.pth` files found in manually configured `site-package-path` directories to align 
+behavior with interpreter-queried site-packages. When you set `site-package-path = ['./python_path']` in your 
+configuration, Pyrefly will scan for `.pth` files in that directory and add the paths they reference to the import 
+search path, mimicking Python's standard `.pth` file processing behavior. See the [`site-package-path` configuration 
+option](configuration.mdx#site-package-path) for more details.
+
 ### uv with setuptools
 
 When using [uv](https://docs.astral.sh/uv/) with setuptools, uv can be

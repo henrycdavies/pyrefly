@@ -15,7 +15,8 @@ documentation = "https://pyrefly.org/en/docs/"
 
 [project]
 name = "pyrefly"
-description = "A fast type checker and language server for Python with powerful IDE features"
+version = "0.37.0+pth"
+description = "A fast type checker and language server for Python with powerful IDE features (Custom build with automatic .pth file expansion for site-package-path)"
 readme = "README.md"
 requires-python = ">=3.8"
 keywords = ["typechecker", "typechecking"]
